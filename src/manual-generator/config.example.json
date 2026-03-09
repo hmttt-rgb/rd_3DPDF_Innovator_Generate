@@ -1,0 +1,9 @@
+{
+  "api": {
+    "baseUrl": "http://pkv0199:8080",
+    "timeout": 60000
+  },
+  "output": {
+    "defaultPath": "C:\\3DPDF\\manual-output"
+  }
+}

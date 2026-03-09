@@ -1,0 +1,93 @@
+◎ DDAでGPUを仮想マシンに割り当てる(2025/10/22
+
+参考文献
+https://learn.microsoft.com/ja-jp/windows-server/virtualization/hyper-v/deploy/deploying-graphics-devices-using-dda
+
+概要
+物理マシンから仮想マシン"HyperV2"へGPUを割り当てる
+
+1. ハードウェアが個別のデバイスの割り当てに対応していることを確認
+以下のスクリプトを実行する(ダウンロードして、そのまま叩けばOK!)
+https://github.com/MicrosoftDocs/Virtualization-Documentation/blob/live/hyperv-tools/DiscreteDeviceAssignment/SurveyDDA.ps1
+結果）NVIDIA RTX 2000 Ada Generation
+　　　And its interrupts are message-based, assignment can work.　→割り当て可能という意味
+　　　PCIROOT(0)#PCI(0100)#PCI(0000)　→物理サーバー(ホストOS)上でのGPUの場所(あとで使うかも)
+　　　And it requires at least: 337 MB of MMIO gap space　→MMIOの領域を開ける必要がある。
+
+☆MMIO (Memory-Mapped I/O) とは、
+　CPUがGPUなどのデバイスと直接通信（データの読み書き）するために使用する、特別なメモリ（アドレス）空間のことです。
+
+2. MMIOの領域の設定
+バッファー値の決定：スクリプトで示された必要量（at least: 337 MB）を十分にカバーできる、キリの良い「2のべき乗」の値
+　　　　　　　　　　→今回は512MB
+
+3. ホストOSに管理者モードで入り、PowerShellを管理者モードで実行
+Automatic Stop Action を有効にするように VM を構成
+> Set-VM -Name HyperV2 -AutomaticStopAction TurnOff
+
+4. グラフィックス デバイス用の VM の準備 (MMIO領域の各行)
+> Set-VM -GuestControlledCacheTypes $true -VMName "HyperV2"
+> Set-VM -VMName "HyperV2" -HighMemoryMappedIoSpace 512MB
+
+5. ホスト パーティションからデバイスをマウント解除する
+→ DDA（個別デバイス割り当て）の手順において、
+ホストOS（物理サーバー）とVM（仮想マシン）が1つのGPUを取り合わないようにするために必要な操作です。
+
+# デバイスの無効化
+> デバイスマネージャー> ディスプレイアダプター> NDIVIA を無効化する
+
+# デバイスの切り離し
+> $locationPath = "PCIROOT(0)#PCI(0100)#PCI(0000)"
+> Dismount-VmHostAssignableDevice -LocationPath $locationPath -Force
+
+6. デバイスをゲスト VM に割り当てる
+> $locationPath = "PCIROOT(0)#PCI(0100)#PCI(0000)"
+> Add-VMAssignableDevice -LocationPath $locationPath -VMName "HyperV2"
+
+7. 割り当ての確認
+> Get-VMAssignableDevice -VMName "HyperV2"
+
+8.(HyperV2) NVIDIAドライバーのインストール
+  インストールしたNVIDIAドライバー：
+　NVIDIA RTX Server Driver Release 580 R580 U4(581.42) | Windows Server 2025
+　URL:  https://www.nvidia.com/ja-jp/drivers/details/254702/
+  
+  *ドライバーがインストールされるまでは、"Windows基本のディスプレイ～"がデバイスマネージャー上から見える
+　 しかも黄色い三角マークが出ているが、心配無用。
+　 ドライバーがインストールされていれば解決する。もしそれでも解決しないようだったらアンインストールして、再起動かければOK
+
+
+
+◎ 仮想マシンHyperV2に割り当てられたGPUを、
+　 もう一つの仮想マシンHyperV1に付け替える (2026/01/29)
+
+概要
+仮想マシンHyperV2に割り当てたGPUを全てHyperV1に割り当てる
+
+以下を全てホストサーバー(物理マシン)で実行
+**対象仮想マシン(移行先/移行元)をシャットダウンする**
+
+
+1. HyperV2に割り当てられているGPUのロケーションパスを特定する
+ 
+ PowerShell(管理者モード)以下を実行
+ > $gpuPath = (Get-VMAssignableDevice -VMName HyperV2).LocationPath
+ 
+ 参考までに、$gpuPathの結果は以下の通り
+ LocationPath     : PCIROOT(0)#PCI(0100)#PCI(0000)
+
+
+2. HyperV2(移行元)からGPUを取り外す
+ > Remove-VMAssignableDevice -VMName HyperV2 -LocationPath $gpuPath
+
+3. HyperV1(移行先)へGPUを割り当てる
+
+ 3-1) シャットダウンではなく、TurnOffする
+ > Set-VM -VMName HyperV1 -AutomaticStopAction TurnOff
+ 
+ 3-2) CPUキャッシュ設定とMMIO空間の確保
+ > Set-VM -VMName HyperV1 -GuestControlledCacheTypes $true -LowMemoryMappedIoSpace 3Gb -HighMemoryMappedIoSpace 33Gb
+
+4. HyperV1(移行先)へGPUを割り当てる
+ > Add-VMAssignableDevice -VMName HyperV1 -LocationPath $gpuPath
+

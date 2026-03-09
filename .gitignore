@@ -1,0 +1,30 @@
+# 環境・機密ファイル
+.env
+.env/
+*.env
+
+# エディタ一時ファイル
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 仕様書（ローカルのみ）
+SPEC_*.md
+
+# 旧Git履歴
+.git_old/
+
+# 検証用・バックアップフォルダ（大文字小文字両方）
+**/test/
+**/TEST/
+**/backup/
+**/BACKUP/
